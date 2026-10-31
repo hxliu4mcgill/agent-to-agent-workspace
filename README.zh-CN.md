@@ -247,4 +247,4 @@ python -m unittest discover -s tests -v
 
 ## 许可证
 
-目前尚未选择许可证。在公开发布仓库之前，请添加明确的开源许可证。
+本项目采用 [MIT License](LICENSE)。

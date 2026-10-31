@@ -271,5 +271,4 @@ Validate the Skill structure with Codex's `quick_validate.py` before release.
 
 ## License
 
-No license has been selected yet. Add an explicit open-source license before
-publishing the repository publicly.
+Licensed under the [MIT License](LICENSE).
