@@ -73,26 +73,35 @@ and falls back to direct filesystem operations when Python is unavailable. See
 [`references/manual-fallback.md`](references/manual-fallback.md) for the safe
 fallback procedure.
 
-## Configure each project
+## User guide: connect multiple projects
 
-The intended deployment is one parent workspace containing several related
-repositories and one shared coordination directory:
+The following walkthrough connects an iOS app, a backend, and a web app. Replace
+the example names and paths with your own repositories.
+
+### Step 1: place the repositories in one workspace
+
+Keep the participating repositories under a common parent directory. They
+remain independent Git repositories and can still be opened as separate
+Projects in Codex or another Agent tool.
 
 ```text
 workspace/
-├── .agent-to-agent/          # shared inbox and requirement history
 ├── ios-app/
-│   └── .agent-to-agent.json
 ├── backend/
-│   └── .agent-to-agent.json
 └── web-app/
-    └── .agent-to-agent.json
 ```
 
-Every agent Session keeps working inside its own repository. The small config
-file in that repository points upward to the same workspace-level directory.
+The common parent must be readable and writable by every participating
+Session. The shared `.agent-to-agent/` directory will be created there in a
+later step.
 
-Create `.agent-to-agent.json` in every participating project:
+### Step 2: give every project an identity
+
+Create `.agent-to-agent.json` at the root of each repository. Give every
+project a stable, unique `agentId`, while pointing all of them to the same
+workspace-level directory.
+
+For `ios-app/.agent-to-agent.json`:
 
 ```json
 {
@@ -102,39 +111,133 @@ Create `.agent-to-agent.json` in every participating project:
 }
 ```
 
-Each project uses its own stable `agentId`. All participants resolve
-`spaceDirectory` to the same directory. Relative paths are resolved from the
-configuration file, not from the current shell directory.
+For `backend/.agent-to-agent.json`, use the same shared path and change only
+the identity:
 
-`agentId` normally identifies the repository or responsibility, such as
-`ios-app`, `backend`, or `web-app`. Multiple Sessions working for the same
-repository share that identity and inbox. Use separate IDs only when those
-Sessions need independently addressable ownership.
-
-Initialize the shared directory once:
-
-```bash
-python scripts/agent_space.py init --start /path/to/project
+```json
+{
+  "version": 1,
+  "agentId": "backend",
+  "spaceDirectory": "../.agent-to-agent"
+}
 ```
 
-Then inspect or exchange requirements:
+Repeat this for any additional repository, such as `web-app`. An `agentId`
+normally names a repository or responsibility. Multiple Sessions working in
+the same repository should share that identity unless they need separately
+addressable inboxes.
+
+Relative `spaceDirectory` values are resolved from the config file, not from
+the shell's current directory.
+
+### Step 3: initialize the shared space once
+
+Run `init` from any participating project. Use the path where you installed
+this Skill:
 
 ```bash
-python scripts/agent_space.py resolve --start /path/to/project
-python scripts/agent_space.py list --start /path/to/project
-python scripts/agent_space.py create --start /path/to/project \
-  --to backend --title "Add article enrichment" \
-  --body "Enrich public article URLs during capture preview." \
-  --acceptance "A public article produces a useful title and summary."
-python scripts/agent_space.py respond --start /path/to/backend \
-  --id req-... --status accepted --message "Starting implementation."
+python /path/to/agent-to-agent-space/scripts/agent_space.py init \
+  --start /path/to/workspace/ios-app
 ```
+
+This creates the shared inbox without changing any repository:
+
+```text
+workspace/
+├── .agent-to-agent/
+│   └── requirements/
+├── ios-app/
+│   └── .agent-to-agent.json
+├── backend/
+│   └── .agent-to-agent.json
+└── web-app/
+    └── .agent-to-agent.json
+```
+
+If Python is unavailable, follow
+[`references/manual-fallback.md`](references/manual-fallback.md) instead.
+
+### Step 4: verify every project
+
+Resolve the configuration once from each repository:
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
+  --start /path/to/workspace/ios-app
+python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
+  --start /path/to/workspace/backend
+```
+
+Both results must report the same `spaceDirectory`. Their `agentId` values must
+be different: `ios-app` and `backend` in this example. Fix the configuration
+before continuing if either check fails.
+
+### Step 5: open a separate Project and Session for each repository
+
+Open `ios-app`, `backend`, and `web-app` as separate Projects in your Agent
+tool. Each Session keeps its own repository context, while the shared inbox
+connects them. If the Skill was installed after a Session started, restart or
+refresh that Session so the Skill can be discovered.
+
+### Step 6: send the first requirement
+
+In the iOS Session, use natural language:
+
+> Send the backend a requirement to add an article bookmarking endpoint.
+> Include the request parameters and acceptance criteria.
+
+The Agent should create a requirement addressed from `ios-app` to `backend`.
+The equivalent CLI command is:
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py create \
+  --start /path/to/workspace/ios-app \
+  --to backend \
+  --title "Add article bookmarking endpoint" \
+  --body "Provide an authenticated endpoint that bookmarks an article." \
+  --acceptance "A valid request returns the saved bookmark."
+```
+
+The command returns a requirement ID such as `req-...`. The request is now
+durable, but it does not automatically wake the backend Session.
+
+### Step 7: receive and respond to the requirement
+
+Switch to the backend Session and say:
+
+> The frontend has a new requirement. Check it.
+
+The Agent should inspect the backend inbox, explain the request, and accept,
+block, reject, or complete it as appropriate. The equivalent CLI operations
+are:
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py list \
+  --start /path/to/workspace/backend
+python /path/to/agent-to-agent-space/scripts/agent_space.py respond \
+  --start /path/to/workspace/backend \
+  --id req-... \
+  --status accepted \
+  --message "Starting implementation against the documented contract."
+```
+
+### Step 8: check the result from the originating Session
+
+Return to the iOS Session and say:
+
+> Check whether the backend has responded to my requirement.
+
+The iOS Agent can now read the updated status and response history without you
+copying context between Sessions. Continue using the same flow for follow-up
+requirements among frontend, backend, data, infrastructure, or operations
+repositories.
+
+You are finished when every project resolves to the same shared directory and
+the receiving Session can discover and respond to the first requirement.
 
 See [references/protocol.md](references/protocol.md) for the complete file
-format and lifecycle rules.
-
-A complete three-repository layout is available under
-[`examples/workspace`](examples/workspace).
+format and lifecycle rules. A complete three-repository layout is available
+under [`examples/workspace`](examples/workspace).
 
 ## Properties
 

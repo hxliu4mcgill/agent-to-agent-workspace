@@ -59,26 +59,32 @@ Skill 会检测可用的 Python 3 命令；Python 不可用时，将回退到 Ag
 操作。安全 fallback 流程请参阅
 [`references/manual-fallback.md`](references/manual-fallback.md)。
 
-## 配置各个项目
+## 用户指南：连接多个项目
 
-推荐的目录结构是在一个父级 workspace 中放置多个相关仓库，以及一个共享的
-协作目录：
+下面以一个包含 iOS App、后端和 Web 前端的 workspace 为例，从零完成接入。
+请将示例中的名称和路径替换为自己的仓库。
+
+### 第一步：把相关仓库放在同一个 workspace 下
+
+让参与协作的仓库拥有同一个父目录。它们仍然是彼此独立的 Git 仓库，也仍然可以
+在 Codex 或其他 Agent 工具中作为单独的 Project 打开。
 
 ```text
 workspace/
-├── .agent-to-agent/          # 共享收件箱和需求历史
 ├── ios-app/
-│   └── .agent-to-agent.json
 ├── backend/
-│   └── .agent-to-agent.json
 └── web-app/
-    └── .agent-to-agent.json
 ```
 
-每个 Agent Session 仍然在自己的仓库中工作。仓库内的小型配置文件向上指向同一个
-workspace 级共享目录。
+所有参与协作的 Session 都必须能够读写这个父目录。共享的
+`.agent-to-agent/` 将在后续步骤中创建。
 
-在每个参与协作的项目中创建 `.agent-to-agent.json`：
+### 第二步：为每个项目配置身份
+
+在每个仓库的根目录创建 `.agent-to-agent.json`。每个项目使用稳定且唯一的
+`agentId`，同时让它们指向同一个 workspace 级共享目录。
+
+`ios-app/.agent-to-agent.json`：
 
 ```json
 {
@@ -88,36 +94,121 @@ workspace 级共享目录。
 }
 ```
 
-每个项目使用自己稳定的 `agentId`，所有参与者的 `spaceDirectory` 都应解析到
-同一个目录。相对路径以配置文件所在位置为基准，而不是以当前 shell 目录为基准。
+`backend/.agent-to-agent.json` 使用相同的共享路径，只修改身份：
 
-`agentId` 通常代表仓库或职责，例如 `ios-app`、`backend` 或 `web-app`。同一仓库
-中的多个 Session 可以共享相同的身份和收件箱。只有当这些 Session 需要被分别
-指定为负责人时，才使用不同的 ID。
-
-共享目录只需初始化一次：
-
-```bash
-python scripts/agent_space.py init --start /path/to/project
+```json
+{
+  "version": 1,
+  "agentId": "backend",
+  "spaceDirectory": "../.agent-to-agent"
+}
 ```
 
-然后便可以查看或交换需求：
+其他仓库也按相同方式配置，例如 `web-app`。`agentId` 通常代表仓库或职责。
+同一仓库中的多个 Session 应共享同一个身份，除非它们确实需要各自独立的收件箱。
+
+相对 `spaceDirectory` 以配置文件所在目录为基准，而不是以当前 shell 目录为基准。
+
+### 第三步：初始化一次共享空间
+
+从任意一个参与项目执行 `init`。命令中的脚本路径应替换为 Skill 的实际安装位置：
 
 ```bash
-python scripts/agent_space.py resolve --start /path/to/project
-python scripts/agent_space.py list --start /path/to/project
-python scripts/agent_space.py create --start /path/to/project \
-  --to backend --title "Add article enrichment" \
-  --body "Enrich public article URLs during capture preview." \
-  --acceptance "A public article produces a useful title and summary."
-python scripts/agent_space.py respond --start /path/to/backend \
-  --id req-... --status accepted --message "Starting implementation."
+python /path/to/agent-to-agent-space/scripts/agent_space.py init \
+  --start /path/to/workspace/ios-app
 ```
+
+该命令会创建共享收件箱，但不会改变任何仓库的结构：
+
+```text
+workspace/
+├── .agent-to-agent/
+│   └── requirements/
+├── ios-app/
+│   └── .agent-to-agent.json
+├── backend/
+│   └── .agent-to-agent.json
+└── web-app/
+    └── .agent-to-agent.json
+```
+
+如果 Python 不可用，请改用
+[`references/manual-fallback.md`](references/manual-fallback.md) 中的流程。
+
+### 第四步：逐个验证项目配置
+
+分别从每个仓库解析一次配置：
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
+  --start /path/to/workspace/ios-app
+python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
+  --start /path/to/workspace/backend
+```
+
+两次结果必须返回相同的 `spaceDirectory`，同时 `agentId` 应分别为 `ios-app` 和
+`backend`。任何一项不符合预期，都应先修正配置再继续。
+
+### 第五步：为每个仓库打开独立的 Project 和 Session
+
+在 Agent 工具中分别打开 `ios-app`、`backend` 和 `web-app`。每个 Session 只保留
+自己仓库的上下文，共享收件箱负责连接它们。如果 Skill 是在 Session 启动后安装
+的，请刷新或重新打开 Session，让工具发现新的 Skill。
+
+### 第六步：发送第一条需求
+
+在 iOS Session 中直接用自然语言说：
+
+> 给后端提一个需求：增加文章收藏接口，并说明请求参数和验收标准。
+
+Agent 应创建一条从 `ios-app` 发给 `backend` 的结构化需求。等价的 CLI 命令是：
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py create \
+  --start /path/to/workspace/ios-app \
+  --to backend \
+  --title "增加文章收藏接口" \
+  --body "提供一个需要登录的文章收藏接口。" \
+  --acceptance "有效请求能够返回保存后的收藏记录。"
+```
+
+命令会返回一个类似 `req-...` 的需求 ID。此时需求已经持久保存，但不会自动唤醒
+后端 Session。
+
+### 第七步：接收并回复需求
+
+切换到后端 Session，说：
+
+> 前端有新需求了，看一下。
+
+Agent 应检查后端收件箱，说明需求内容，并根据情况接受、阻塞、拒绝或完成它。
+等价的 CLI 操作是：
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py list \
+  --start /path/to/workspace/backend
+python /path/to/agent-to-agent-space/scripts/agent_space.py respond \
+  --start /path/to/workspace/backend \
+  --id req-... \
+  --status accepted \
+  --message "已接受，将按照需求中约定的接口契约开始实现。"
+```
+
+### 第八步：回到来源 Session 检查结果
+
+切回 iOS Session，说：
+
+> 看一下后端有没有回复刚才的需求。
+
+iOS Agent 此时可以直接读取更新后的状态和完整回复历史，不需要你在 Session 之间
+复制上下文。之后，前端、后端、数据、基础设施和运营等仓库都可以重复使用同一
+流程协作。
+
+当所有项目都能解析到同一个共享目录，并且接收方 Session 能发现和回复第一条
+需求时，接入就完成了。
 
 完整的文件格式和生命周期规则请参阅
-[references/protocol.md](references/protocol.md)。
-
-包含三个仓库的完整目录示例位于
+[references/protocol.md](references/protocol.md)。包含三个仓库的完整目录示例位于
 [`examples/workspace`](examples/workspace)。
 
 ## 特性
