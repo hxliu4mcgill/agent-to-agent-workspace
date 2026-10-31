@@ -72,6 +72,16 @@ def discover_config(start: Path, explicit: Path | None = None) -> Path:
     raise SpaceError(f"No {CONFIG_NAME} found from {current} or its parents")
 
 
+def discover_project_root(start: Path) -> Path:
+    current = start.expanduser().resolve()
+    if current.is_file():
+        current = current.parent
+    for directory in (current, *current.parents):
+        if (directory / ".git").exists():
+            return directory
+    raise SpaceError(f"No Git repository root found from {current}")
+
+
 def load_config(
     start: Path, explicit: Path | None = None, *, require_space: bool = True
 ) -> SpaceConfig:
@@ -215,6 +225,64 @@ def requirement_path(config: SpaceConfig, item_id: str) -> Path:
     return config.requirements_directory / f"{item_id}.md"
 
 
+def command_setup(args: argparse.Namespace) -> dict[str, object]:
+    project_root = discover_project_root(Path(args.start))
+    config_path = project_root / CONFIG_NAME
+    config_existed = config_path.exists()
+
+    if config_existed and not args.force:
+        config = load_config(project_root, config_path, require_space=False)
+        if args.agent_id is not None and args.agent_id != config.agent_id:
+            raise SpaceError(
+                f"Config already uses agentId {config.agent_id}; use --force to replace it"
+            )
+        if args.space is not None:
+            requested = Path(args.space).expanduser()
+            if not requested.is_absolute():
+                requested = project_root / requested
+            if requested.resolve() != config.space_directory:
+                raise SpaceError(
+                    "Config already uses a different spaceDirectory; "
+                    "use --force to replace it"
+                )
+    else:
+        agent_id = args.agent_id or project_root.name
+        if not AGENT_ID_RE.fullmatch(agent_id):
+            raise SpaceError(
+                "Cannot infer a valid agentId from the project name; "
+                "provide --agent-id"
+            )
+        raw_space = args.space or "../.agent-to-agent"
+        if not raw_space.strip():
+            raise SpaceError("--space must be a non-empty path")
+        candidate = Path(raw_space).expanduser()
+        if not candidate.is_absolute():
+            candidate = project_root / candidate
+        config = SpaceConfig(config_path, agent_id, candidate.resolve())
+        content = json.dumps(
+            {
+                "version": 1,
+                "agentId": agent_id,
+                "spaceDirectory": raw_space,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ) + "\n"
+        atomic_write(config_path, content)
+
+    requirements_existed = config.requirements_directory.is_dir()
+    config.requirements_directory.mkdir(parents=True, exist_ok=True)
+    verified = load_config(project_root, config_path)
+    return {
+        **_config_result(verified),
+        "projectRoot": str(project_root),
+        "configCreated": not config_existed,
+        "configUpdated": config_existed and args.force,
+        "spaceInitialized": not requirements_existed,
+        "verified": True,
+    }
+
+
 def command_init(args: argparse.Namespace) -> dict[str, object]:
     config = load_config(Path(args.start), _optional_path(args.config), require_space=False)
     config.requirements_directory.mkdir(parents=True, exist_ok=True)
@@ -331,6 +399,19 @@ def build_parser() -> argparse.ArgumentParser:
     location.add_argument("--start", default=os.getcwd(), help="Project path")
     location.add_argument("--config", help="Explicit configuration path")
 
+    setup = subparsers.add_parser(
+        "setup", help="Configure the current Git project and initialize its shared space"
+    )
+    setup.add_argument("--start", default=os.getcwd(), help="Project path")
+    setup.add_argument("--agent-id", help="Stable project identity; defaults to repo name")
+    setup.add_argument(
+        "--space",
+        help="Shared-space path stored in config; defaults to ../.agent-to-agent",
+    )
+    setup.add_argument(
+        "--force", action="store_true", help="Replace an existing project config"
+    )
+
     subparsers.add_parser(
         "init", parents=[location], help="Create the configured shared space"
     )
@@ -366,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     commands = {
+        "setup": command_setup,
         "init": command_init,
         "resolve": command_resolve,
         "list": command_list,

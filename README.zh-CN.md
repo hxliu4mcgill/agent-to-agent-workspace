@@ -64,7 +64,12 @@ Skill 会检测可用的 Python 3 命令；Python 不可用时，将回退到 Ag
 下面以一个包含 iOS App、后端和 Web 前端的 workspace 为例，从零完成接入。
 请将示例中的名称和路径替换为自己的仓库。
 
-### 第一步：把相关仓库放在同一个 workspace 下
+### Setup
+
+Setup 是用户需要执行的唯一准备工作。配置创建、共享收件箱初始化以及结果验证
+都由 Agent 自动完成。
+
+#### 1. 把相关仓库放在同一个 workspace 下
 
 让参与协作的仓库拥有同一个父目录。它们仍然是彼此独立的 Git 仓库，也仍然可以
 在 Codex 或其他 Agent 工具中作为单独的 Project 打开。
@@ -79,46 +84,36 @@ workspace/
 所有参与协作的 Session 都必须能够读写这个父目录。共享的
 `.agent-to-agent/` 将在后续步骤中创建。
 
-### 第二步：为每个项目配置身份
+#### 2. 让 Agent 设置第一个项目
 
-在每个仓库的根目录创建 `.agent-to-agent.json`。每个项目使用稳定且唯一的
-`agentId`，同时让它们指向同一个 workspace 级共享目录。
+在 Agent 工具中将 `ios-app` 作为 Project 打开，然后在 Session 中输入：
 
-`ios-app/.agent-to-agent.json`：
-
-```json
-{
-  "version": 1,
-  "agentId": "ios-app",
-  "spaceDirectory": "../.agent-to-agent"
-}
+```text
+$agent-to-agent-space setup
 ```
 
-`backend/.agent-to-agent.json` 使用相同的共享路径，只修改身份：
+也可以直接使用自然语言：
 
-```json
-{
-  "version": 1,
-  "agentId": "backend",
-  "spaceDirectory": "../.agent-to-agent"
-}
+> 为当前项目设置 Agent-to-Agent Space。
+
+Agent 会找到 Git 仓库根目录，默认使用 `ios-app` 作为身份，创建
+`.agent-to-agent.json`，并在 workspace 父目录初始化共享收件箱。完成后，它应
+报告项目路径、身份、配置文件和共享空间的实际路径。
+
+如果仓库名称不是你想要的身份，可以明确指定：
+
+> 为当前项目设置 Agent-to-Agent Space，身份使用 `mobile`。
+
+#### 3. 在其他项目中重复 setup
+
+把 `backend` 作为另一个独立 Project 打开，并输入同样的请求：
+
+```text
+$agent-to-agent-space setup
 ```
 
-其他仓库也按相同方式配置，例如 `web-app`。`agentId` 通常代表仓库或职责。
-同一仓库中的多个 Session 应共享同一个身份，除非它们确实需要各自独立的收件箱。
-
-相对 `spaceDirectory` 以配置文件所在目录为基准，而不是以当前 shell 目录为基准。
-
-### 第三步：初始化一次共享空间
-
-从任意一个参与项目执行 `init`。命令中的脚本路径应替换为 Skill 的实际安装位置：
-
-```bash
-python /path/to/agent-to-agent-space/scripts/agent_space.py init \
-  --start /path/to/workspace/ios-app
-```
-
-该命令会创建共享收件箱，但不会改变任何仓库的结构：
+在 `web-app` 和其他参与协作的仓库中重复执行。第一个项目会创建共享目录，后续
+项目会复用它。每个项目拥有自己的身份和配置，但都指向同一个收件箱：
 
 ```text
 workspace/
@@ -132,30 +127,13 @@ workspace/
     └── .agent-to-agent.json
 ```
 
-如果 Python 不可用，请改用
-[`references/manual-fallback.md`](references/manual-fallback.md) 中的流程。
+每次 setup 都会重新读取保存后的配置，并自动验证共享目录。Agent 会报告成功，
+或者直接说明错误；用户不需要再执行独立的验证步骤。`resolve` 只用于故障排查。
 
-### 第四步：逐个验证项目配置
+如果 Skill 是在 Session 启动后安装的，请刷新或重新打开 Session，让工具发现
+新的 Skill。
 
-分别从每个仓库解析一次配置：
-
-```bash
-python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
-  --start /path/to/workspace/ios-app
-python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
-  --start /path/to/workspace/backend
-```
-
-两次结果必须返回相同的 `spaceDirectory`，同时 `agentId` 应分别为 `ios-app` 和
-`backend`。任何一项不符合预期，都应先修正配置再继续。
-
-### 第五步：为每个仓库打开独立的 Project 和 Session
-
-在 Agent 工具中分别打开 `ios-app`、`backend` 和 `web-app`。每个 Session 只保留
-自己仓库的上下文，共享收件箱负责连接它们。如果 Skill 是在 Session 启动后安装
-的，请刷新或重新打开 Session，让工具发现新的 Skill。
-
-### 第六步：发送第一条需求
+### 发送第一条需求
 
 在 iOS Session 中直接用自然语言说：
 
@@ -175,7 +153,7 @@ python /path/to/agent-to-agent-space/scripts/agent_space.py create \
 命令会返回一个类似 `req-...` 的需求 ID。此时需求已经持久保存，但不会自动唤醒
 后端 Session。
 
-### 第七步：接收并回复需求
+### 接收并回复需求
 
 切换到后端 Session，说：
 
@@ -194,7 +172,7 @@ python /path/to/agent-to-agent-space/scripts/agent_space.py respond \
   --message "已接受，将按照需求中约定的接口契约开始实现。"
 ```
 
-### 第八步：回到来源 Session 检查结果
+### 回到来源 Session 检查结果
 
 切回 iOS Session，说：
 
@@ -210,6 +188,42 @@ iOS Agent 此时可以直接读取更新后的状态和完整回复历史，不�
 完整的文件格式和生命周期规则请参阅
 [references/protocol.md](references/protocol.md)。包含三个仓库的完整目录示例位于
 [`examples/workspace`](examples/workspace)。
+
+## 手动设置与故障排查
+
+正常情况下，Agent 会代替你完成下面的操作。只有在自动化或排查问题时，才需要
+直接使用这些命令。
+
+与自动 setup 等价的单步 CLI 命令是：
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py setup \
+  --start /path/to/workspace/ios-app
+```
+
+它会根据仓库目录名推导 `agentId`，并把 `../.agent-to-agent` 作为共享路径。
+需要时可以覆盖这两个值：
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py setup \
+  --start /path/to/workspace/ios-app \
+  --agent-id mobile \
+  --space ../shared-agent-space
+```
+
+如果不使用 setup 命令，项目根目录中等价的手动配置是：
+
+```json
+{
+  "version": 1,
+  "agentId": "ios-app",
+  "spaceDirectory": "../.agent-to-agent"
+}
+```
+
+之后只需执行一次 `init`，并从每个项目执行 `resolve`。相对共享路径以配置文件
+所在目录为基准，而不是以当前 shell 目录为基准。如果 Python 不可用，请使用
+[`references/manual-fallback.md`](references/manual-fallback.md) 中的流程。
 
 ## 特性
 

@@ -78,7 +78,12 @@ fallback procedure.
 The following walkthrough connects an iOS app, a backend, and a web app. Replace
 the example names and paths with your own repositories.
 
-### Step 1: place the repositories in one workspace
+### Setup
+
+Setup is the only preparation users need to perform. The Agent creates the
+configuration, initializes the shared inbox, and verifies the result.
+
+#### 1. Place the repositories in one workspace
 
 Keep the participating repositories under a common parent directory. They
 remain independent Git repositories and can still be opened as separate
@@ -95,52 +100,38 @@ The common parent must be readable and writable by every participating
 Session. The shared `.agent-to-agent/` directory will be created there in a
 later step.
 
-### Step 2: give every project an identity
+#### 2. Ask the Agent to set up the first project
 
-Create `.agent-to-agent.json` at the root of each repository. Give every
-project a stable, unique `agentId`, while pointing all of them to the same
-workspace-level directory.
+Open `ios-app` as a Project in your Agent tool. Start a Session and enter:
 
-For `ios-app/.agent-to-agent.json`:
-
-```json
-{
-  "version": 1,
-  "agentId": "ios-app",
-  "spaceDirectory": "../.agent-to-agent"
-}
+```text
+$agent-to-agent-space setup
 ```
 
-For `backend/.agent-to-agent.json`, use the same shared path and change only
-the identity:
+You can also use natural language:
 
-```json
-{
-  "version": 1,
-  "agentId": "backend",
-  "spaceDirectory": "../.agent-to-agent"
-}
+> Set up Agent-to-Agent Space for this project.
+
+The Agent finds the Git repository root, uses `ios-app` as the default
+identity, creates `.agent-to-agent.json`, and initializes the shared inbox in
+the workspace parent. It should report the resolved project, identity, config
+path, and shared-space path when finished.
+
+If the repository name is not the identity you want, include it explicitly:
+
+> Set up Agent-to-Agent Space for this project with the identity `mobile`.
+
+#### 3. Repeat setup in every other project
+
+Open `backend` as a separate Project and run the same request:
+
+```text
+$agent-to-agent-space setup
 ```
 
-Repeat this for any additional repository, such as `web-app`. An `agentId`
-normally names a repository or responsibility. Multiple Sessions working in
-the same repository should share that identity unless they need separately
-addressable inboxes.
-
-Relative `spaceDirectory` values are resolved from the config file, not from
-the shell's current directory.
-
-### Step 3: initialize the shared space once
-
-Run `init` from any participating project. Use the path where you installed
-this Skill:
-
-```bash
-python /path/to/agent-to-agent-space/scripts/agent_space.py init \
-  --start /path/to/workspace/ios-app
-```
-
-This creates the shared inbox without changing any repository:
+Repeat it in `web-app` and every other participating repository. The first
+setup creates the shared directory; later setups reuse it. Each project gets
+its own identity and config while all Projects point to the same inbox:
 
 ```text
 workspace/
@@ -154,32 +145,14 @@ workspace/
     └── .agent-to-agent.json
 ```
 
-If Python is unavailable, follow
-[`references/manual-fallback.md`](references/manual-fallback.md) instead.
+Each setup automatically reloads the saved config and verifies its shared
+directory. The Agent reports success or explains the error; users do not need
+to run a separate verification step. Use `resolve` only for troubleshooting.
 
-### Step 4: verify every project
+If the Skill was installed after a Session started, restart or refresh that
+Session so it can discover the Skill.
 
-Resolve the configuration once from each repository:
-
-```bash
-python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
-  --start /path/to/workspace/ios-app
-python /path/to/agent-to-agent-space/scripts/agent_space.py resolve \
-  --start /path/to/workspace/backend
-```
-
-Both results must report the same `spaceDirectory`. Their `agentId` values must
-be different: `ios-app` and `backend` in this example. Fix the configuration
-before continuing if either check fails.
-
-### Step 5: open a separate Project and Session for each repository
-
-Open `ios-app`, `backend`, and `web-app` as separate Projects in your Agent
-tool. Each Session keeps its own repository context, while the shared inbox
-connects them. If the Skill was installed after a Session started, restart or
-refresh that Session so the Skill can be discovered.
-
-### Step 6: send the first requirement
+### Send the first requirement
 
 In the iOS Session, use natural language:
 
@@ -201,7 +174,7 @@ python /path/to/agent-to-agent-space/scripts/agent_space.py create \
 The command returns a requirement ID such as `req-...`. The request is now
 durable, but it does not automatically wake the backend Session.
 
-### Step 7: receive and respond to the requirement
+### Receive and respond to the requirement
 
 Switch to the backend Session and say:
 
@@ -221,7 +194,7 @@ python /path/to/agent-to-agent-space/scripts/agent_space.py respond \
   --message "Starting implementation against the documented contract."
 ```
 
-### Step 8: check the result from the originating Session
+### Check the result from the originating Session
 
 Return to the iOS Session and say:
 
@@ -238,6 +211,43 @@ the receiving Session can discover and respond to the first requirement.
 See [references/protocol.md](references/protocol.md) for the complete file
 format and lifecycle rules. A complete three-repository layout is available
 under [`examples/workspace`](examples/workspace).
+
+## Manual setup and troubleshooting
+
+The Agent normally performs these operations for you. Use the commands below
+for automation or when diagnosing setup.
+
+The equivalent one-step CLI command is:
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py setup \
+  --start /path/to/workspace/ios-app
+```
+
+It infers `agentId` from the repository directory name and stores
+`../.agent-to-agent` as the shared path. Override either value when needed:
+
+```bash
+python /path/to/agent-to-agent-space/scripts/agent_space.py setup \
+  --start /path/to/workspace/ios-app \
+  --agent-id mobile \
+  --space ../shared-agent-space
+```
+
+Without the setup command, the equivalent manual config at the project root is:
+
+```json
+{
+  "version": 1,
+  "agentId": "ios-app",
+  "spaceDirectory": "../.agent-to-agent"
+}
+```
+
+Then run `init` once and `resolve` from every project. Relative shared paths
+are resolved from the config file, not from the shell's current directory.
+If Python is unavailable, follow
+[`references/manual-fallback.md`](references/manual-fallback.md).
 
 ## Properties
 

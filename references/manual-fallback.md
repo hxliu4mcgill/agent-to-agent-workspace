@@ -4,6 +4,22 @@ Use this procedure only when the bundled Python CLI cannot run. Preserve the
 same configuration, file format, routing, and lifecycle rules defined in
 [protocol.md](protocol.md).
 
+## Set up a project
+
+1. Find the nearest Git repository root from the current project path.
+2. Use the repository directory name as the default `agentId`. Ask for an
+   explicit identity if it does not match the required agent-ID pattern.
+3. If `.agent-to-agent.json` does not exist, create it with `version: 1`, the
+   selected `agentId`, and `spaceDirectory: ../.agent-to-agent` unless the user
+   chose another shared path.
+4. If the config already exists, validate and reuse it. Do not replace
+   conflicting values without explicit user authorization.
+5. Resolve the shared path and create its `requirements/` directory.
+6. Re-read the persisted config, resolve it again, and verify that the shared
+   `requirements/` directory exists.
+7. Report the project root, identity, config path, resolved shared path, and
+   verification result. Do not ask the user to run a separate verification.
+
 ## Resolve configuration
 
 1. Starting at the current project path, walk toward the filesystem root and

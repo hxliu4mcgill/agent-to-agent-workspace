@@ -38,6 +38,33 @@ performed safely with those tools.
 
 In the commands below, replace `python` with the working interpreter command.
 
+## Set up a project
+
+When the user says `$agent-to-agent-space setup`, asks to set up the current
+project, or uses equivalent natural language, run:
+
+```text
+python <skill-dir>/scripts/agent_space.py setup --start <project-path>
+```
+
+The command finds the nearest Git repository root, uses the repository name as
+the default `agentId`, writes `.agent-to-agent.json`, and initializes
+`../.agent-to-agent/requirements/`. It then reloads the persisted config and
+verifies the shared space automatically. Do not ask the user to run a separate
+`resolve` check after successful setup. Repeat setup once in every participating
+repository.
+
+Pass `--agent-id <id>` when the repository name is not the intended identity,
+and `--space <path>` when the repositories do not share the default parent
+directory. Report the resolved identity, config path, and shared-space path.
+
+Setup is idempotent. If an existing config conflicts with explicit setup
+arguments, stop and explain the conflict. Use `--force` only after the user
+explicitly authorizes replacing that config.
+
+If Python is unavailable, perform the equivalent setup steps from
+[references/manual-fallback.md](references/manual-fallback.md).
+
 ## Resolve the space
 
 Before reading or writing requirements, run:

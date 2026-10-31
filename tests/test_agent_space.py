@@ -45,6 +45,80 @@ class AgentSpaceTests(unittest.TestCase):
         defaults.update(values)
         return type("Args", (), defaults)()
 
+    def setup_args(self, project: Path, **values):
+        defaults = {
+            "start": str(project),
+            "agent_id": None,
+            "space": None,
+            "force": False,
+        }
+        defaults.update(values)
+        return type("Args", (), defaults)()
+
+    def new_git_project(self, name: str) -> Path:
+        project = self.root / name
+        project.mkdir()
+        (project / ".git").mkdir()
+        return project
+
+    def test_setup_creates_config_and_shared_space_from_nested_path(self):
+        project = self.new_git_project("api")
+        nested = project / "src" / "feature"
+        nested.mkdir(parents=True)
+
+        result = agent_space.command_setup(self.setup_args(nested))
+
+        self.assertEqual(result["agentId"], "api")
+        self.assertTrue(result["configCreated"])
+        self.assertTrue(result["spaceInitialized"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(Path(result["spaceDirectory"]), self.shared.resolve())
+        config = json.loads((project / ".agent-to-agent.json").read_text("utf-8"))
+        self.assertEqual(
+            config,
+            {
+                "version": 1,
+                "agentId": "api",
+                "spaceDirectory": "../.agent-to-agent",
+            },
+        )
+        self.assertTrue((self.shared / "requirements").is_dir())
+
+    def test_setup_is_idempotent_and_rejects_conflicting_values(self):
+        project = self.new_git_project("service")
+        first = agent_space.command_setup(self.setup_args(project))
+        second = agent_space.command_setup(self.setup_args(project))
+
+        self.assertTrue(first["configCreated"])
+        self.assertFalse(second["configCreated"])
+        self.assertFalse(second["configUpdated"])
+        self.assertFalse(second["spaceInitialized"])
+
+        with self.assertRaises(agent_space.SpaceError):
+            agent_space.command_setup(
+                self.setup_args(project, agent_id="different-backend")
+            )
+
+    def test_setup_force_replaces_existing_config(self):
+        project = self.new_git_project("worker")
+        agent_space.command_setup(self.setup_args(project))
+
+        result = agent_space.command_setup(
+            self.setup_args(
+                project,
+                agent_id="api",
+                space="../shared-agent-space",
+                force=True,
+            )
+        )
+
+        self.assertTrue(result["configUpdated"])
+        self.assertEqual(result["agentId"], "api")
+        self.assertEqual(
+            Path(result["spaceDirectory"]),
+            (self.root / "shared-agent-space").resolve(),
+        )
+
     def test_resolve_requires_existing_space(self):
         with self.assertRaises(agent_space.SpaceError):
             agent_space.load_config(self.frontend)
@@ -177,6 +251,26 @@ class AgentSpaceTests(unittest.TestCase):
         payload = json.loads(resolved.stdout)
         self.assertEqual(payload["data"]["agentId"], "frontend")
         self.assertEqual(Path(payload["data"]["spaceDirectory"]), self.shared.resolve())
+
+    def test_cli_setup_round_trip(self):
+        project = self.new_git_project("analytics")
+        script = ROOT / "scripts" / "agent_space.py"
+
+        completed = subprocess.run(
+            [sys.executable, "-B", str(script), "setup", "--start", str(project)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        payload = json.loads(completed.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["data"]["agentId"], "analytics")
+        self.assertTrue(payload["data"]["configCreated"])
+        self.assertTrue(payload["data"]["verified"])
+        self.assertTrue((project / ".agent-to-agent.json").is_file())
+        self.assertTrue((self.shared / "requirements").is_dir())
 
     def test_concurrent_creates_use_unique_ids(self):
         agent_space.command_init(self.args())
