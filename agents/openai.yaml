@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent-to-Agent Space"
+  short_description: "Coordinate requirements across agent sessions"
+  default_prompt: "Use $agent-to-agent-space to send or process a requirement in the configured shared space."
